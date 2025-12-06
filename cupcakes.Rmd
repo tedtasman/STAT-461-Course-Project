@@ -1,0 +1,576 @@
+---
+title: "Analysis of Paper Airplane Design Performance"
+subtitle: "Homework #3.3 One-Way ANOVA and Post Hoc Practice Report"
+author: "James Myers, Ted Tasman, Jackson Charles Pieretti, Rimjhim Mitra"
+date: "11/21/2025"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+geometry: left=1in,right=1in,top=1in,bottom=1in
+urlcolor: blue
+header-includes:
+  - \usepackage{subfig}
+---
+
+```{r setupFiles, include = FALSE}
+# Setting Document Options ----
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+
+# Import Packages
+packages <- c("tidyverse", "knitr", "kableExtra", "psych", "car",
+              "mratios", "googlesheets4", "permute", "emmeans", "hasseDiagram"
+)
+lapply(
+  X = packages,
+  FUN = library,
+  character.only = TRUE
+)
+
+# Set Options
+options(contrasts = c("contr.sum", "contr.poly"))
+options(knitr.kable.NA = "")
+
+# Load data
+gs4_deauth()
+rawPlanes <- read_sheet(
+  ss = "https://docs.google.com/spreadsheets/d/1gZMCpN7op9SKUZlEGHl8is7mnu5heno2WZZgTk-cNbM/edit?usp=sharing"
+)
+
+# Tidy data
+planes <- rawPlanes %>%
+  filter(`Plane Type` %in% c("Basic", "Dart", "V-Wing")) %>%
+  dplyr::select(design = `Plane Type`, distance_in = SAM) %>%
+  mutate(
+    order = row_number(),
+    .after = design
+  )
+
+# Factor design
+planes$design <- as.factor(planes$design)
+
+# Define Freedman-Diaconis Rule
+fdRule <- function(x) {
+  return(
+    ifelse(
+      test = IQR(x) == 0,
+      yes =  0.1,
+      no =  2 * IQR(x) / (length(x)^(1/3))
+    )
+  )
+}
+
+```
+
+# Literature Review
+
+# Methodology
+
+To explore how paper airplane flight distance is impacted by folding design, we will utilize data previously collected by our statistics class for this study. The class' professor, Dr. Hatfield, selected a ream of paperby assigning numbers 1-10 to each of the reams from the available paper in the statistics department. The left column, from top to bottom, was numbered 1-5. The right column, from top to bottom, was numbered 6-10. Then, a random number generator was used to select a random number between 1 and 10. The ream of paper corresponding to the randomly generated number was selected for the experiment. Individual pieces of paper were selected by coin flip to decide whether to use a paper or pass, where we would use a paper if the coin was heads and pass on a paper if the coin was tails. This process repeated until the 12 desired sheets of paper were sampled. 
+
+The measurement unit in this study is the same as the experimental unit, being the individual sheets of paper . The response being analyzed is the distance flown resulting from the action of throwing. Specifically, this was measured as the direct distance from the back edge of the tape (the tip of the throwers' shoes) to the closest point on the paper airplane while ensuring the tape measure remains as flat as possible. There will be one factor, the folding style or "design", with three different levels serving as the treatments. These levels will be Basic Dart, The Basic, and V-Wing paper airplane designs.
+
+Given that we have a categorical factor and a quantitative response, we are working within an ANOVA context. One possible choice of ANOVA model to explain our data is the **Cell Means Model**: $$y_{ij} = \mu_{i\bullet}+\epsilon_{ij}$$ This model sets the $jth$ plane observation with fold style $i$, $y_{ij}$, equal to the mean response for all observations in that fold style, $\mu_{i\bullet}$, plus an error term, $\epsilon_{ij}$, to account for variation between that specific observation and the treatment mean. This would give an indication of the performance of each fold style in the factor level means, but this is not a perfect representation. This model confounds treatment performance with baseline performance. A better option would be the **Factor Effects Model**, which filters out the baseline performance to avoid confounding. With this model, we can either pick one treatment level and set its effect to 0, or we can ensure that the sum of effects across all levels of factors is 0. Since we have no Null or Standard Care treatment in this study to set to 0 effect, we will select the second option and ensure the constraint is met. We have: $$y_{ij}=\mu_{\bullet\bullet}+\alpha_{i}+\epsilon_{ij}$$ This model sets $y_{ij}$, the $jth$ plane observation for fold style $i$ equal to the **Grand Mean** across all treatments, $\mu_{\bullet\bullet}$, plus $\alpha_{i}$ representing the effect of the specific fold style i for this observation. Finally, an error term $\epsilon_{ij}$ is included to account for the variation between observations of the same treatment.
+
+```{r hasseDiagram}
+#| fig.cap="Hasse Diagram of Paper Airplanes Study",
+#| out.height="25%"
+
+# Generate Hasse Diagram ========
+modelLabels <- c("1 Throw Plane 1", "3 Fold Style 2", "12 (Sheet of Paper) 9")
+modelMatrix <- matrix(
+  data = c(FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE, TRUE, FALSE),
+  nrow = 3,
+  ncol = 3,
+  byrow = FALSE
+)
+hasseDiagram::hasse(
+ data = modelMatrix,
+ labels = modelLabels
+)
+```
+
+We can visualize our model using a **Hasse Diagram**, as shown in figure \ref{fig:hasseDiagram}. This diagram confirms additional conditions required for the Factor Effects ANOVA model. In addition to the categorical factor and quantitative response, we can now see that there are estimable effects alongside estimable residuals (as evidenced by the 2 degrees of freedom at the factor level and 9 degrees of freedom at the residuals level). Finally, the Hasse Diagram itself is a representation of the additivity of the model, this being the final condition required for a Factor Effects Model.
+
+In our analysis, we will utilize an Unusualness Threshold of 5%. Meaning if an event is observed that would occur no more than 5% of the time under the assumption of the null model, we will reject the null model as an adequate description of the data. Additionally, we’ll use the parametric ANOVA F test to answer the research question at a 5% level of significance. For Post Hoc analysis, we’ll use an overall Type I Error Rate of 12% using Tukey’s HSD, indicating that across pairwise inferences intended, there is a 12% chance of making one or more Type I Error.
+
+# Data Exploration
+
+```{r boxplot}
+#| fig.cap="Box plots of Distance Flown by Design",
+#| out.width="60%"
+# Box plots of plane designs ========
+ggplot(
+  data = planes,
+  mapping = aes(x = distance_in, y = design, fill = design)
+) +
+  geom_boxplot() +
+  theme_bw() +
+  xlab("Distance Flown (in)") +
+  ylab(NULL) +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 12)
+  )
+```
+
+**INTERPRET BOXPLOT** Figure \ref{fig:boxplot}
+
+```{r histograms}
+#| fig.cap="Histograms of Distance Flown by Fold Design",
+#| fig.width=6,
+#| fig.height=2,
+#| fig.pos="H"
+# Create histograms by design ========
+ggplot(
+  data = planes,
+  mapping = aes(x = distance_in, fill = design)
+) +
+  geom_histogram(
+    binwidth = fdRule,
+    col = "black",
+    closed = "left",
+    boundary = 0
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = 0, add = c(0, 1))
+  ) +
+  facet_wrap(
+    facets = ~design,
+    scales = "free_x"
+  ) +
+  theme_bw() +
+  xlab("Distance Flown (in)") +
+  ylab("Frequency") +
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none"
+  )
+
+```
+
+**INTERPRET HISTOGRAMS Figure \ref{fig:histograms}**
+
+```{r descStats}
+# Get descriptive statistics by design ========
+groupStats <- psych::describeBy(
+  x = planes$distance_in,
+  group = planes$design,
+  na.rm = TRUE,
+  skew = TRUE,
+  ranges = TRUE,
+  quant = c(0.25, 0.75),
+  IQR = TRUE,
+  mat = TRUE,
+  digits = 4
+)
+
+# Clean
+groupStats <- groupStats %>%
+  tibble::remove_rownames() %>%
+  tibble::column_to_rownames(
+    var = "group1"
+  ) %>%
+  dplyr::select(
+    n, min, Q0.25, median, Q0.75, max, mad, mean, sd, skew, kurtosis
+  )
+
+```
+
+
+```{r descStatsTable1}
+# Generate table for first 6 stats ========
+groupStats[1:6] %>%
+  knitr::kable(
+    caption = "Quantile statistics for Paper Plane Distances",
+    digits = 3,
+    format.args = list(big.mark = ","),
+    align = rep('c', 6),
+    col.names = c("n", "Min", "Q1", "Median", "Q3", "Max"),
+    booktabs = TRUE
+  )  %>%
+  kableExtra::kable_styling(
+    latex_options = c("scale_down")
+  ) 
+```
+
+**INTERPRET STATISTICS Table \ref{tab:descStatsTable1}**
+
+```{r descStatsTable2}
+# Generate table for rest of stats ========
+groupStats[7:11] %>%
+  knitr::kable(
+    caption = "Summary Statistics for Paper Plane Distances",
+    digits = 3,
+    format.args = list(big.mark = ","),
+    align = rep('c', 5),
+    col.names = c("MAD", "SAM", "SASD","Sample Skew", "Sample Ex. Kurtosis"),
+    booktabs = TRUE
+  )  %>%
+  kableExtra::kable_styling(
+    latex_options = c("scale_down")
+  ) 
+```
+
+**INTERPRET STATISTICS Table \ref{tab:descStatsTable2}**
+
+# Results
+
+**INTERPRET HYPOTHESES**:
+To answer the **Statistical Research Question**, we will use a hypothesis test. The null hypothesis will be that plane design has no effect on distance flown, and the alternative hypothesis will be that plane design does have some impact on distance flown. This can be represented mathematically as: $$H_0: \alpha_B = \alpha_D = \alpha_V = 0 \qquad \text{vs.} \qquad H_a: \alpha_B \ne \alpha_D \enspace\text{or}\enspace \alpha_B \ne \alpha_V \enspace\text{or}\enspace \alpha_D \ne \alpha_V$$ Where $\alpha_B$ represents the factor effect of "The Basic", $\alpha_D$ represents the factor effect of the "Dart" design, and $\alpha_V$ represents the factor effect of the "V-Wing" design. We will use ANOVA to test this.
+
+```{r model}
+# Fit the model ========
+planeModel <- aov(
+  formula = distance_in ~ design,
+  data = planes,
+  na.action = "na.omit"
+)
+```
+
+## Assumptions
+
+To test our hypotheses, we intend to use a Parametric Shortcut for the F-Ratio Test. In order to safely use this shortcut for interpreting our ANOVA model, we must ensure that the relevant assumptions are met. For the F-Ratio test, our residuals must follow a Gaussian Distribution, our data must be Homoscedastic, and all observations in our data should be independent of one another. We will assess how well our data meets these assumptions, keeping in mind that we have a balanced design and are using a robust ANOVA model.
+
+```{r qqPlot}
+#| fig.cap="QQ Plot for Distance Flown Residuals",
+#| out.width="80%"
+## Create the QQ plot ========
+car::qqPlot(
+  x = planeModel$residuals,
+  distribution = "norm",
+  envelope = 0.9,
+  id = FALSE,
+  pch = 20,
+  ylab = "Residuals (in)",
+  xlab = "Gaussian Quantiles"
+)
+
+# Calculate overall sample skew and excess kurtosis
+sskew <- psych::skew(planeModel$residuals)
+skurt <- psych::kurtosi(planeModel$residuals)
+```
+
+To verify the assumption of Gaussian Residuals, we can look at the QQ Plot shown in Figure \ref{fig:qqPlot}. From Figure \ref{fig:qqPlot}, we can see the residuals for Distance Flown form a mostly linear trend versus the Gaussian Quantiles, and all 12 observations fall within the 90% envelope. Furthermore, considering the **Sample Skew** of `r round(sskew, 2)` and **Sample Excess Kurtosis** of `r round(skurt, 2)`, we can safely conclude that the assumption of Gaussian Residuals is satisfied.
+
+```{r homoscedasticity}
+#| fig.cap="Strip Chart for Distance Flown Residuals",
+#| out.width="70%"
+# Create strip chart ========
+ggplot(
+  data = data.frame(
+    residuals = planeModel$residuals,
+    fitted = planeModel$fitted.values
+  ),
+  mapping = aes(x = fitted, y = residuals)
+) +
+  geom_point(size = 2) +
+  theme_bw() +
+  labs(
+    x = "Fitted values (in)",
+    y = "Residuals (in)"
+  )
+```
+
+We will check the assumption of Homoscedasticity by analyzing a strip chart for the residuals. Figure \ref{fig:homoscedasticity} suggests that this assumption is met, as there is no serious pattern and no strip is more than twice the height of another. Since we only have three levels in our factor, we can look past the apparent diamond shape as we can’t say for certain it is a strong pattern. Therefore, we will consider our data homoscedastic.
+
+```{r indexPlot}
+#| fig.cap="Index Plot for Distance Flown Residuals",
+#| out.width="70%"
+# Create the Index Plot ========
+ggplot(
+  data = data.frame(
+    residuals = planeModel$residuals,
+    index = planes$order
+  ),
+  mapping = aes(x = index, y = residuals)
+) +
+  geom_point(size = 1.5) +
+  geom_line() +
+  theme_bw() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "red"
+  ) +
+  labs(
+    x = "Measurement order",
+    y = "Residuals (lbs)"
+  )
+
+planesDW <- car::durbinWatsonTest(planeModel)$dw
+```
+
+Lastly, we will assess the independence of our observations with an Index Plot. Figure \ref{fig:indexPlot} shows the relationship between the residuals in our model and their measurement order. We can see that there is no consistent pattern in the data with respect to measurement order. Additionally, we can assess our data with the Durbin Watson Statistic to get a sense of the independence of observations. We get a DW of `r round(planesDW, 2)`, which is not cause for concern. As a result, we can confidently accept that our observations are independent for the purposes of the Parametric Shortcut.
+
+Having met all three assumptions needed to conduct the Parametric Shortcut for the F-Test, we can proceed with analyzing the ANOVA output and F statistic for our data.
+
+
+
+## Parametric Shortcut: F-Ratio Test
+
+```{r anovaTable}
+# Create a professional looking ANOVA table ========
+parameters::model_parameters(
+  model = planeModel,
+  es_type = c("eta", "omega", "epsilon") 
+) %>%
+  knitr::kable(
+  digits = 4,
+  col.names = c(
+    "Source", "SS", "df", "MS", "F", "p-value",
+    "Eta Sq.", "Omega Sq.", "Epsilon Sq."),
+  caption = "ANOVA Table for Paper Plane Flight Distance",
+  booktabs = TRUE, 
+  align = c("l", rep("c", 8)),
+  # format = "latex"
+  ) %>%
+  kableExtra::kable_styling(
+    font_size = 12,
+    latex_options = c("HOLD_position")
+  )
+
+# Get S-value
+pValue <- summary(planeModel)[[1]][["Pr(>F)"]][1]
+sValue <- -1*log(pValue, base = 2)
+```
+
+We will use the ANOVA output from Table \ref{tab:anovaTable} to determine whether our factor, design, has an impact on paper plane flight distance. From this output we get an observed **F-statistic** of about 8.7. This means that the factor of design accounted for approximately 8.7 times as much variation as is left unaccounted for. Given that the assumptions for the Parametric Shortcut were met, we would anticipate seeing an F ratio as large or larger than this about `r round(pValue * 100, 2)`% of the time if plane design had no effect on distance flown. At our Unusualness Threshold of 5% we consider this event to be “unusual” under the null hypothesis, leading us to **reject the null hypothesis** as an appropriate model for our data. We can also interpret the **s-value** for this study of `r round(sValue, 2)` as the probability of flipping a coin and having it land on heads 7 times in a row, a notably unlikely event.
+
+
+
+```{r pointEst}
+# Perform point estimation ========
+pointEst <- dummy.coef(planeModel)
+pointEst <- unlist(pointEst)
+names(pointEst) <- c("Grand Mean", "Basic", "V-Wing",
+                     "Dart")
+
+data.frame("Estimate" = pointEst) %>%
+  knitr::kable(
+  digits = 2,
+  caption = "Point Estimates from Paper Plane Distances",
+  booktabs = TRUE,
+  align = "c"
+  ) %>%
+  kableExtra::kable_styling(
+    font_size = 12,
+    latex_options = c("HOLD_position")
+  ) 
+```
+**INTERPRET POINT ESTIMATES Table \ref{tab:pointEst}**
+
+
+```{r confInt}
+# Calculate Point and Interval Estimates for Marginal Means ========
+planeMeans <- emmeans(
+  object = planeModel,
+  specs = ~ design,
+  level = 0.88,
+  adjust = "tukey"
+) 
+
+planeMeans <- as.data.frame(planeMeans)
+planeMeans %>%
+  kable(
+    digits = 4,
+    caption = "Marginal Mean Estimates from Paper Plane Distances",
+    col.names = c("Distance Flown (in.)", "Marginal Mean", "SE", "df",
+                  "Lower Bound", "Upper Bound"),
+    booktabs = TRUE,
+    align = "c"
+  ) %>%
+  kableExtra::kable_styling(
+    font_size = 12,
+    latex_options = c("HOLD_position")
+  ) 
+```
+**INTERPERET CONFIDENCE INTERVALS Table \ref{tab:confInt}**
+
+
+## Permutation Simulation
+
+In addition to the Parametric Shortcut, we can utilize a **Permutation Simulation** to get a sampling distribution for the F statistic for our observations. We will generate 1000 simulations assuming the null hypothesis is true, that is, the observations can be switched across groups because the groups have no effect. For each arrangement of observations, we can calculate the F statistic. With 1000 such tests, we will get a good sense of the true underlying sampling distribution for the F statistic for our data. We can then compare our observed F statistic to see how unusual it may be.
+
+```{r permFunction}
+
+# Define Function for Getting Permutation F Ratio Values ========
+perm.F <- function(data, response, factor) {
+  ## Shuffle the Data
+  perm <- shuffle(n = nrow(data))
+  shuffledData <- data.frame(
+    response = data[response],
+    factor = data[[factor]][perm]
+  )
+  
+  ## Fit the ANOVA Model
+  model <- aov(
+    formula = as.formula(paste(response, "~", "factor")),
+    data = shuffledData
+  )
+  
+  ## Get the value of F
+  f <- anova(model)$`F value`[1] 
+  return(f)
+}
+```
+
+```{r runSim}
+# Run simulation ========
+set.seed(461)
+
+B <- 1000
+
+planePerm <- replicate(
+  n = B - 1,
+  expr = perm.F(
+    data = planes,
+    response = "distance_in",
+    factor = "design"
+  )
+)
+
+# Add observed F
+obs.F <- anova(planeModel)$`F value`[1]
+planePerm[length(planePerm) + 1] <- obs.F
+
+# Calculate p-value
+extremes <- sum(planePerm >= obs.F)
+pValue <- extremes / B
+```
+
+```{r permHistogram}
+#| fig.cap="Histogram of Permutation Simulation F-Statistics",
+#| out.width="70%"
+# Make Histogram for Permutation Simulation ========
+ggplot(
+  data = data.frame(
+    `F` = planePerm,
+    type = c(rep("perm", length(planePerm) - 1), "obs")
+  ),
+  mapping = aes(x = `F`)
+) +
+  geom_histogram(
+    color = "black",
+    fill = "blue",
+    binwidth = fdRule,
+    boundary = 0,
+    closed = "left"
+  ) +
+  geom_vline(
+    xintercept = obs.F,
+    color = "red"
+  ) +
+  annotate(
+    geom = "label",
+    x = Inf,
+    y = Inf,
+    hjust = 1.25,
+    vjust = 2,
+    label = paste(
+      "Freq ≥ Obs. F \n",
+      "Abs. Freq. is", sum(planePerm >= obs.F), "\n",
+      "Rel. Freq. is", paste0(round(sum(planePerm >= obs.F)/length(planePerm)*100, 2), "%")
+    )
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.01))
+  ) +
+  theme_bw() +
+  labs(
+    x = "Values of the F Ratio",
+    y = "Frequency"
+  )
+```
+
+Figure \ref{fig:permHistogram} shows the resulting sampling distribution for our 1000 permutation simulations. From this distribution,we get a p-value for our real observation of `r pValue`. We can say that the probability of getting a value of the F statistic of 8.774 or greater assuming the null hypothesis is true, is about `r round(pValue * 100)`%. With our Unusualness Threshold of 5%, we can again reject the null hypothesis, concluding that Plane Design does have some impact on Distance Flown.
+
+## Pairwise Comparisons
+```{r tukeyHSD}
+# Perform Tukey HSD ========
+planeHSD <- TukeyHSD(
+  x = planeModel,
+  conf.level = 0.88
+)
+
+# Make professional table
+## Tukey HSD
+as.data.frame(planeHSD$design) %>%
+  tibble::rownames_to_column(var = "Pair") %>%
+  knitr::kable(
+    digits = 3,
+    caption = "Post Hoc Tukey HSD Comparisons",
+    col.names = c("Pair", "Difference", "Lower Bound",
+                  "Upper Bound", "Adj. p-Value"),
+    align = 'lcccc',
+    booktabs = TRUE,
+  ) %>%
+  kableExtra::kable_styling(
+    bootstrap_options = c("condensed", "boardered"),
+    font_size = 12,
+    latex_options = c("HOLD_position")
+  )
+```
+
+```{r connectingLetters}
+#| fig.cap="Box plots of Distance Flown by Design",
+#| out.width="60%"
+# Create connecting letters boxplot ========
+# Ensure planes is a dataframe
+planesFrame <- as.data.frame(planes)
+# Remove the dash from V-Wing
+levels(planesFrame$design)[levels(planesFrame$design) == "V-Wing"] <- "V Wing"
+
+# Create boxplot
+multcompView::multcompBoxplot(
+  formula = distance_in ~ design,
+  data = planesFrame,
+  compFn = "TukeyHSD",
+  plotList = list(
+    boxplot = list(fig = c(0, 0.85, 0, 1)),
+    multcompLetters = list(
+      fig = c(0.8, 0.9, 0.1, 0.9),
+      fontsize = 12,
+      fontface = "bold"
+    )
+  )
+)
+```
+
+**INTERPET CONNECTING LETTERS BOXLPLOT Figure \ref{fig:connectingLetters}**
+
+# Discussion
+
+\newpage
+
+# References
+
+\newpage
+
+# Code Appendix
+
+```{r codeAppendix}
+#| ref.label = knitr::all_labels(),
+#| echo = TRUE,
+#| eval = FALSE
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
