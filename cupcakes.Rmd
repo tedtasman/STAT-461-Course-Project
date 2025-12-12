@@ -1,8 +1,8 @@
 ---
-title: "Analysis of Paper Airplane Design Performance"
-subtitle: "Homework #3.3 One-Way ANOVA and Post Hoc Practice Report"
-author: "James Myers, Ted Tasman, Jackson Charles Pieretti, Rimjhim Mitra"
-date: "11/21/2025"
+title: "Analysis of Baking Powder Brand on Cupcake Rise"
+subtitle: "STAT 461 Final Project"
+author: "Rimjhim Mitra, James Myers, Jackson Charles Pieretti, Ted Tasman"
+date: "12/19/2025"
 output: 
   pdf_document:
     latex_engine: xelatex
@@ -36,17 +36,25 @@ options(contrasts = c("contr.sum", "contr.poly"))
 options(knitr.kable.NA = "")
 
 # Load data
-rawCupcakes <- read_csv(
-  file = "https://raw.github.com/tedtasman/STAT-461-Course-Project/refs/heads/main/cupcake_data.csv",
-  show_col_types = FALSE
+rawCupcakes <- read.table(
+  file = "https://raw.github.com/tedtasman/STAT-461-Course-Project/refs/heads/main/cupcakes.dat",
+  header = TRUE
 )
 
 # Convert to dataframe
 cupcakes <- as.data.frame(rawCupcakes)
 
 # Factor design
-cupcakes$Position <- as.factor(cupcakes$Position)
-cupcakes$Brand <- as.factor(cupcakes$Brand)
+cupcakes$position <- as.factor(cupcakes$position)
+cupcakes$brand <- factor(
+  cupcakes$brand,
+  labels = c(
+    "Clabber Girl",
+    "None",
+    "Rumford",
+    "Wegman's"
+  )
+)
 
 # Define Freedman-Diaconis Rule
 fdRule <- function(x) {
@@ -78,16 +86,16 @@ fdRule <- function(x) {
 # Data Exploration
 
 ```{r boxplot}
-#| fig.cap="Box plots of Distance Flown by Design",
+#| fig.cap="Box plots of Post Bake Height by Baking Powder Brand",
 #| out.width="60%"
 # Box plots of plane designs ========
 ggplot(
-  data = planes,
-  mapping = aes(x = distance_in, y = design, fill = design)
+  data = cupcakes,
+  mapping = aes(x = baked, y = brand, fill = brand)
 ) +
   geom_boxplot() +
   theme_bw() +
-  xlab("Distance Flown (in)") +
+  xlab("Cupcake Height (mm)") +
   ylab(NULL) +
   theme(
     legend.position = "none",
@@ -98,14 +106,14 @@ ggplot(
 **INTERPRET BOXPLOT** Figure \ref{fig:boxplot}
 
 ```{r histograms}
-#| fig.cap="Histograms of Distance Flown by Fold Design",
+#| fig.cap="Histograms of Post Bake Height by Baking Powder Brand",
 #| fig.width=6,
-#| fig.height=2,
+#| fig.height=4,
 #| fig.pos="H"
 # Create histograms by design ========
 ggplot(
-  data = planes,
-  mapping = aes(x = distance_in, fill = design)
+  data = cupcakes,
+  mapping = aes(x = baked, fill = brand)
 ) +
   geom_histogram(
     binwidth = fdRule,
@@ -117,11 +125,11 @@ ggplot(
     expand = expansion(mult = 0, add = c(0, 1))
   ) +
   facet_wrap(
-    facets = ~design,
+    facets = ~brand,
     scales = "free_x"
   ) +
   theme_bw() +
-  xlab("Distance Flown (in)") +
+  xlab("Cupcake Height (mm)") +
   ylab("Frequency") +
   theme(
     text = element_text(size = 12),
@@ -135,8 +143,8 @@ ggplot(
 ```{r descStats}
 # Get descriptive statistics by design ========
 groupStats <- psych::describeBy(
-  x = planes$distance_in,
-  group = planes$design,
+  x = cupcakes$baked,
+  group = cupcakes$brand,
   na.rm = TRUE,
   skew = TRUE,
   ranges = TRUE,
@@ -163,7 +171,7 @@ groupStats <- groupStats %>%
 # Generate table for first 6 stats ========
 groupStats[1:6] %>%
   knitr::kable(
-    caption = "Quantile statistics for Paper Plane Distances",
+    caption = "Quantile Statistics for Cupcake Heights",
     digits = 3,
     format.args = list(big.mark = ","),
     align = rep('c', 6),
@@ -181,7 +189,7 @@ groupStats[1:6] %>%
 # Generate table for rest of stats ========
 groupStats[7:11] %>%
   knitr::kable(
-    caption = "Summary Statistics for Paper Plane Distances",
+    caption = "Summary Statistics for Cupcake Heights",
     digits = 3,
     format.args = list(big.mark = ","),
     align = rep('c', 5),
@@ -211,7 +219,69 @@ planeModel <- aov(
 
 ## Assumptions
 
-To test our hypotheses, we intend to use a Parametric Shortcut for the F-Ratio Test. In order to safely use this shortcut for interpreting our ANOVA model, we must ensure that the relevant assumptions are met. For the F-Ratio test, our residuals must follow a Gaussian Distribution, our data must be Homoscedastic, and all observations in our data should be independent of one another. We will assess how well our data meets these assumptions, keeping in mind that we have a balanced design and are using a robust ANOVA model.
+
+
+```{r additive}
+# Demo Code for Assessing Homogeneity of Slopes in Keyboarding Pain Study ----
+cupcakeModel <- aov(
+  formula = baked ~ position + initial + brand + initial:brand,
+  data = cupcakes
+)
+
+# Scatter plot of hours of pain and hours spent keyboarding ----
+# 
+ggplot(
+  data = cupcakes,
+  mapping = aes(
+    y = baked,
+    x = initial
+  )
+) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    color = "black",
+    linetype = "dashed",
+    se = FALSE
+  ) +
+  theme_bw() +
+  labs(
+    x = "Hours Spent Keyboarding",
+    y = "Hours of Pain"
+  )
+```
+```{r separateLines}
+ggplot(
+  data = cupcakes,
+  mapping = aes(
+    y = baked,
+    x = initial,
+    color = brand,
+    shape = brand,
+    linetype = brand
+  )
+) +
+  geom_point(size = 2) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE
+  ) +
+  theme_bw() +
+  labs(
+    x = "Hours Spent Keyboarding",
+    y = "Hours of Pain",
+    color = "Keyboard Type",
+    shape = "Keyboard Type",
+    linetype = "Keyboard Type"
+  ) +
+   theme(
+     legend.position = "right",
+     legend.key.width = unit(1, "cm")
+   )
+```
+
 
 ```{r qqPlot}
 #| fig.cap="QQ Plot for Distance Flown Residuals",
