@@ -44,17 +44,23 @@ rawCupcakes <- read.table(
 # Convert to dataframe
 cupcakes <- as.data.frame(rawCupcakes)
 
+# Drop None
+cupcakes <- cupcakes[cupcakes$brand != "none", ]
+
 # Factor design
 cupcakes$position <- as.factor(cupcakes$position)
 cupcakes$brand <- factor(
   cupcakes$brand,
   labels = c(
     "Clabber Girl",
-    "None",
     "Rumford",
     "Wegman's"
   )
 )
+
+
+
+
 
 # Define Freedman-Diaconis Rule
 fdRule <- function(x) {
@@ -210,18 +216,16 @@ groupStats[7:11] %>%
 
 ```{r model}
 # Fit the model ========
-planeModel <- aov(
-  formula = distance_in ~ design,
-  data = planes,
+cupcakeModel <- aov(
+  formula = baked ~ initial + brand,
+  data = cupcakes,
   na.action = "na.omit"
 )
 ```
 
 ## Assumptions
 
-
-
-```{r additive}
+```{r linearity}
 # Demo Code for Assessing Homogeneity of Slopes in Keyboarding Pain Study ----
 cupcakeModel <- aov(
   formula = baked ~ position + initial + brand + initial:brand,
@@ -247,11 +251,13 @@ ggplot(
   ) +
   theme_bw() +
   labs(
-    x = "Hours Spent Keyboarding",
-    y = "Hours of Pain"
+    x = "Initial Batter Height (mm)",
+    y = "Cupcake Height After Baking (mm)"
   )
 ```
-```{r separateLines}
+Interpret Figure \ref{fig:linearity}, note that lack of linearity is caused by dramatic differences in factor effects
+
+```{r slopes}
 ggplot(
   data = cupcakes,
   mapping = aes(
@@ -265,21 +271,42 @@ ggplot(
   geom_point(size = 2) +
   geom_smooth(
     method = "lm",
+    mapping = aes(y = predict(cupcakeModel)),
     formula = y ~ x,
     se = FALSE
   ) +
   theme_bw() +
   labs(
-    x = "Hours Spent Keyboarding",
-    y = "Hours of Pain",
-    color = "Keyboard Type",
-    shape = "Keyboard Type",
-    linetype = "Keyboard Type"
+    x = "Initial Batter Height (mm)",
+    y = "Cupcake Height After Baking (mm)",
+    color = "Brand",
+    shape = "Brand",
+    linetype = "Brand"
   ) +
    theme(
      legend.position = "right",
      legend.key.width = unit(1, "cm")
    )
+```
+Interpet Figure \ref{fig:slopes}
+
+```{r outliers}
+# Outlier detection
+ggplot(
+  data = cupcakes,
+  mapping = aes(x = baked)
+) + 
+  geom_boxplot(
+    coef = 1.5
+  ) +
+  theme_void() + 
+  xlab("Hours of Pain") +
+  theme(
+    axis.line.x = element_line(),
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_text(size = 12)
+  )
+
 ```
 
 
